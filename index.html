@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WRF Real-time Weather Map Viewer</title>
+<style>
+/* ── Reset & Theme ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #1a1e2e;
+  --bg2:     #232840;
+  --bg3:     #2d3454;
+  --border:  #3a4468;
+  --accent:  #4a9eff;
+  --accent2: #ff8c42;
+  --text:    #e0e6f0;
+  --text2:   #8a9bbf;
+  --ok:      #3ddc97;
+  --err:     #ff5757;
+  --active:  #1e3a6e;
+  --dim:     rgba(255,255,255,.12);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 13px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── HEADER ─────────────────────────────────────────────────────── */
+#header {
+  background: var(--bg2);
+  border-bottom: 2px solid var(--border);
+  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+#header h1 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+  margin-right: 4px;
+}
+
+.hdr-sep {
+  width: 1px; height: 20px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* Run selector group */
+.run-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.run-group label {
+  color: var(--text2);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+#date-inp, #hour-sel {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 4px 7px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color .15s;
+}
+#date-inp { width: 126px; }
+#hour-sel { width: 74px; }
+#date-inp:focus, #hour-sel:focus,
+#date-inp:hover, #hour-sel:hover { border-color: var(--accent); }
+
+/* Region / Domain tabs */
+.region-group, .domain-group { display: flex; gap: 3px; }
+.region-btn, .domain-btn {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text2);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  transition: all .12s;
+}
+.region-btn:hover, .domain-btn:hover { border-color: var(--accent); color: var(--accent); }
+.region-btn.active, .domain-btn.active {
+  background: var(--active);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Load button */
+#load-btn {
+  background: var(--accent);
+  border: none;
+  border-radius: 5px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 16px;
+  transition: all .15s;
+  white-space: nowrap;
+}
+#load-btn:hover { background: #3a8eef; }
+#load-btn:disabled { background: var(--bg3); color: var(--text2); cursor: default; }
+
+/* Run info badge */
+#run-badge {
+  margin-left: auto;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text2);
+  font-size: 11px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+#run-badge .hi { color: var(--accent2); font-weight: 700; }
+
+/* ── BODY ────────────────────────────────────────────────────────── */
+#body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── SIDEBAR ─────────────────────────────────────────────────────── */
+#sidebar {
+  width: 196px;
+  min-width: 196px;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex-shrink: 0;
+}
+#sidebar::-webkit-scrollbar { width: 4px; }
+#sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+#sidebar-msg {
+  color: var(--text2);
+  font-size: 11px;
+  padding: 16px 12px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.cat-hdr {
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  color: var(--accent2);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .6px;
+  padding: 6px 10px;
+  text-transform: uppercase;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cat-hdr::after { content: '▾'; }
+.cat-hdr.collapsed::after { content: '▸'; }
+.cat-items.collapsed { display: none; }
+
+.prod-btn {
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(58,68,104,.4);
+  color: var(--text2);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 7px 10px 7px 14px;
+  text-align: left;
+  transition: all .1s;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.prod-btn:hover:not(.unavail) { background: var(--bg3); color: var(--text); }
+.prod-btn.active {
+  background: var(--active);
+  color: var(--accent);
+  border-left: 3px solid var(--accent);
+  padding-left: 11px;
+  font-weight: 600;
+}
+.prod-btn.unavail { opacity: .35; cursor: not-allowed; }
+.prod-btn .badge {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text2);
+  font-size: 9px;
+  margin-left: auto;
+  padding: 1px 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.prod-btn.active .badge {
+  background: var(--active);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── MAIN ────────────────────────────────────────────────────────── */
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Time info bar */
+#timeinfo {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 5px 14px;
+  flex-shrink: 0;
+  min-height: 30px;
+}
+.ti-lbl { color: var(--text2); font-size: 11px; }
+.ti-val {
+  color: var(--text);
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  font-weight: 700;
+}
+.ti-val.hi { color: var(--accent2); }
+.ti-sep { color: var(--border); }
+#prod-title {
+  margin-left: auto;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Image area */
+#imgarea {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111420;
+}
+#mainimg {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+  transition: opacity .1s;
+}
+#mainimg.fading { opacity: .5; }
+
+/* Status / overlay */
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17,20,32,.6);
+  pointer-events: none;
+}
+#overlay.hidden { display: none; }
+.ovl-box {
+  background: rgba(26,30,46,.95);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 22px 36px;
+  text-align: center;
+  max-width: 400px;
+}
+.ovl-box.info  { color: var(--text2); }
+.ovl-box.load  { color: var(--accent); }
+.ovl-box.error { color: var(--err); }
+.ovl-box .ovl-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+.ovl-box .ovl-sub   { font-size: 11px; margin-top: 6px; opacity: .7; }
+
+/* Spinner */
+.spinner {
+  display: inline-block;
+  width: 20px; height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  margin-bottom: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── CONTROLS ────────────────────────────────────────────────────── */
+#controls {
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  padding: 8px 14px 10px;
+}
+
+/* Preload bar */
+#preload-bar {
+  height: 2px;
+  background: var(--bg3);
+  border-radius: 1px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+#preload-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--ok));
+  border-radius: 1px;
+  transition: width .25s;
+  width: 0%;
+}
+
+/* Timeline row */
+#timeline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.tl-lbl { color: var(--text2); font-size: 11px; white-space: nowrap; }
+.fhr-box {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--accent);
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 44px;
+  padding: 2px 6px;
+  text-align: center;
+}
+
+#fhr-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg3);
+  border-radius: 4px;
+  cursor: pointer;
+  flex: 1;
+  height: 7px;
+  outline: none;
+}
+#fhr-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  box-shadow: 0 0 5px rgba(74,158,255,.5);
+  cursor: pointer;
+  height: 18px;
+  width: 18px;
+}
+#fhr-slider::-moz-range-thumb {
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  cursor: pointer;
+  height: 18px;
+  width: 18px;
+}
+
+/* Tick marks */
+#ticks-wrap {
+  display: flex;
+  align-items: center;
+  margin-bottom: 7px;
+}
+#ticks-pad { min-width: 56px; }
+#ticks-pad2 { min-width: 44px; }
+#ticks {
+  flex: 1;
+  position: relative;
+  height: 14px;
+}
+.tick {
+  color: var(--text2);
+  cursor: pointer;
+  font-size: 9px;
+  position: absolute;
+  text-align: center;
+  transform: translateX(-50%);
+  transition: color .1s;
+  white-space: nowrap;
+}
+.tick:hover { color: var(--accent); }
+.tick.cur { color: var(--accent2); font-weight: 700; }
+.tick.unavail { color: var(--border); cursor: default; pointer-events: none; }
+
+/* Button row */
+#btn-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ctrl-btn {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  min-width: 32px;
+  padding: 5px 9px;
+  transition: all .1s;
+  text-align: center;
+}
+.ctrl-btn:hover { background: var(--bg); border-color: var(--accent); color: var(--accent); }
+.ctrl-btn.play {
+  background: var(--active);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-size: 15px;
+  min-width: 38px;
+}
+.ctrl-btn.play.on { background: rgba(255,87,87,.15); border-color: var(--err); color: var(--err); }
+
+.vsep { width: 1px; height: 22px; background: var(--border); margin: 0 3px; }
+
+.speed-grp {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text2);
+  font-size: 11px;
+}
+#speed-sl {
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg3);
+  border-radius: 4px;
+  cursor: pointer;
+  height: 4px;
+  outline: none;
+  width: 70px;
+}
+#speed-sl::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  background: var(--accent2);
+  border-radius: 50%;
+  height: 13px;
+  width: 13px;
+  cursor: pointer;
+}
+#speed-val { color: var(--accent2); font-family: monospace; font-weight: 700; min-width: 38px; }
+
+.loop-grp {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text2);
+  font-size: 11px;
+  cursor: pointer;
+}
+.loop-grp input { cursor: pointer; }
+
+#kbd-hint {
+  margin-left: auto;
+  color: var(--border);
+  font-size: 10px;
+  white-space: nowrap;
+}
+#kbd-hint kbd {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--text2);
+  font-size: 9px;
+  padding: 1px 4px;
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════ HEADER ═══════════════════════════════ -->
+<div id="header">
+  <h1>WRF Real-time Weather Map Viewer</h1>
+
+  <div class="hdr-sep"></div>
+
+  <!-- Region selector -->
+  <div class="run-group">
+    <label>Region</label>
+    <div class="region-group">
+      <button class="region-btn active" data-region="korea" onclick="clickRegion(this)">Korea</button>
+      <button class="region-btn" data-region="cambodia" onclick="clickRegion(this)">Cambodia</button>
+      <button class="region-btn" data-region="caribbean" onclick="clickRegion(this)">Caribbean</button>
+    </div>
+  </div>
+
+  <div class="hdr-sep"></div>
+
+  <!-- Date selector -->
+  <div class="run-group">
+    <label for="date-inp">Date</label>
+    <input type="date" id="date-inp" />
+  </div>
+
+  <!-- Hour selector -->
+  <div class="run-group">
+    <label for="hour-sel">Hour (UTC)</label>
+    <select id="hour-sel">
+      <option value="00">00 UTC</option>
+      <option value="06">06 UTC</option>
+      <option value="12">12 UTC</option>
+      <option value="18">18 UTC</option>
+    </select>
+  </div>
+
+  <div class="hdr-sep"></div>
+
+  <!-- Domain tabs -->
+  <div class="run-group">
+    <label>Domain</label>
+    <div class="domain-group">
+      <button class="domain-btn active" data-domain="DOMAIN1" onclick="clickDomain(this)">D1</button>
+      <button class="domain-btn"        data-domain="DOMAIN2" onclick="clickDomain(this)">D2</button>
+      <button class="domain-btn"        data-domain="DOMAIN3" onclick="clickDomain(this)">D3</button>
+      <button class="domain-btn"        data-domain="DOMAIN4" onclick="clickDomain(this)">D4</button>
+    </div>
+  </div>
+
+  <button id="load-btn" onclick="loadRun()">&#9654; Load</button>
+
+  <div id="run-badge">No run loaded</div>
+</div>
+
+<!-- ═══════════════════════ BODY ═════════════════════════════════ -->
+<div id="body">
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div id="sidebar-msg">Select a region, date, hour,<br>and domain above,<br>then click <strong>Load</strong>.</div>
+  </div>
+
+  <!-- Main panel -->
+  <div id="main">
+
+    <!-- Time info bar -->
+    <div id="timeinfo">
+      <span class="ti-lbl">FHR</span>
+      <span class="ti-val hi" id="ti-fhr">+000h</span>
+      <span class="ti-sep">|</span>
+      <span class="ti-lbl">Valid (UTC)</span>
+      <span class="ti-val" id="ti-utc">–</span>
+      <span class="ti-sep">|</span>
+      <span class="ti-lbl">Valid (Local)</span>
+      <span class="ti-val" id="ti-ict">–</span>
+      <span id="prod-title">–</span>
+    </div>
+
+    <!-- Image area -->
+    <div id="imgarea">
+      <img id="mainimg" src="" alt="" />
+      <div id="overlay">
+        <div class="ovl-box info" id="ovl-box">
+          <div class="ovl-title">WRF NWP Viewer</div>
+          <div>Choose a region, date, hour, and domain,<br>then click <strong>Load</strong> to begin.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div id="controls">
+
+      <div id="preload-bar"><div id="preload-fill"></div></div>
+
+      <!-- Slider row -->
+      <div id="timeline">
+        <span class="tl-lbl">FHR</span>
+        <span class="fhr-box" id="fhr-cur">000</span>
+        <input type="range" id="fhr-slider" min="0" max="0" value="0" step="1"
+               oninput="onSliderInput(this.value)"
+               onchange="onSliderChange(this.value)" />
+        <span class="fhr-box" id="fhr-max">000</span>
+      </div>
+
+      <!-- Tick marks -->
+      <div id="ticks-wrap">
+        <div id="ticks-pad"></div>
+        <div id="ticks"></div>
+        <div id="ticks-pad2"></div>
+      </div>
+
+      <!-- Button row -->
+      <div id="btn-row">
+        <button class="ctrl-btn" onclick="goFirst()" title="First (Home)">⏮</button>
+        <button class="ctrl-btn" onclick="stepBack()" title="Previous (←)">◀</button>
+        <button class="ctrl-btn play" id="play-btn" onclick="togglePlay()" title="Play / Pause (Space)">▶</button>
+        <button class="ctrl-btn" onclick="stepFwd()" title="Next (→)">▶</button>
+        <button class="ctrl-btn" onclick="goLast()"  title="Last (End)">⏭</button>
+
+        <div class="vsep"></div>
+
+        <div class="speed-grp">
+          <span>Speed</span>
+          <input type="range" id="speed-sl" min="1" max="20" value="4"
+                 oninput="onSpeed(this.value)" />
+          <span id="speed-val">4 fps</span>
+        </div>
+
+        <div class="vsep"></div>
+
+        <label class="loop-grp">
+          <input type="checkbox" id="loop-chk" checked />
+          <span>Loop</span>
+        </label>
+
+        <div id="kbd-hint">
+          <kbd>←</kbd><kbd>→</kbd> step &nbsp;
+          <kbd>Space</kbd> play &nbsp;
+          <kbd>Home</kbd><kbd>End</kbd> first/last
+        </div>
+      </div>
+
+    </div>
+  </div><!-- #main -->
+
+</div><!-- #body -->
+
+<!-- ═══════════════════════ JAVASCRIPT ═══════════════════════════ -->
+<script>
+'use strict';
+
+// ── Config ────────────────────────────────────────────────────────
+const FIGS_BASE = '../FIGS';   // relative path from this viewer.html to FIGS dir
+
+// Region settings. The image path becomes:
+// FIGS_BASE / region / YYYYMMDD / HH / DOMAIN / product_###.png
+const REGIONS = {
+  korea:     { label: 'Korea',     utcOffset:  9, tzName: 'KST' },
+  cambodia:  { label: 'Cambodia',  utcOffset:  7, tzName: 'ICT' },
+  caribbean: { label: 'Caribbean', utcOffset: -4, tzName: 'AST' },
+};
+
+// ── Product catalog ───────────────────────────────────────────────
+// 'id' must match the PNG filename prefix exactly (prefix_NNN.png)
+const CATALOG = [
+  { cat: 'Upper Level', items: [
+    { id: 'plt_200hPa',     label: '200 hPa Wind & Divergence' },
+    { id: 'plt_500_rh_vect',label: '500 hPa RH & Wind Vector' },
+    { id: 'plt_700_rh_vec', label: '700 hPa RH & Wind Vector' },
+  ]},
+  { cat: 'Low Level', items: [
+    { id: 'plt_strem',      label: '850 hPa Streamlines' },
+    { id: 'plt_barb_mfc',   label: '850 hPa Moisture Flux Conv.' },
+    { id: 'plt_barb_div',   label: '850 hPa Divergence' },
+    { id: 'plt_barb_vor',   label: '850 hPa Vorticity' },
+    { id: '1plt_barb_div',  label: '850 hPa Div + Barbs' },
+    { id: '2plt_barb_vor',  label: '850 hPa Vor + Barbs' },
+  ]},
+  { cat: 'Precipitation', items: [
+    { id: 'plt_total_pcp1h',    label: 'Total Precip (1 h accum)' },
+    { id: 'plt_conv_pcp1h',     label: 'Conv. Precip (1 h accum)' },
+    { id: 'plt_nonconv_pcp1h',  label: 'Non-conv Precip (1 h accum)' },
+    { id: 'plt_total_pcp24h',   label: 'Total Precip (24 h accum)' },
+    { id: 'plt_conv_pcp24h',    label: 'Conv. Precip (24 h accum)' },
+    { id: 'plt_nonconv_pcp24h', label: 'Non-conv Precip (24 h accum)' },
+  ]},
+  { cat: 'Instability', items: [
+    { id: 'plt_mcape_mcin', label: 'CAPE / CIN' },
+  ]},
+  { cat: 'Skew-T', items: [
+    { id: 'plt_skewt_00', label: 'Skew-T  Station 00' },
+    { id: 'plt_skewt_01', label: 'Skew-T  Station 01' },
+    { id: 'plt_skewt_02', label: 'Skew-T  Station 02' },
+    { id: 'plt_skewt_03', label: 'Skew-T  Station 03' },
+    { id: 'plt_skewt_04', label: 'Skew-T  Station 04' },
+    { id: 'plt_skewt_05', label: 'Skew-T  Station 05' },
+  ]},
+];
+
+// ── App state ─────────────────────────────────────────────────────
+const S = {
+  run:       null,   // { region:'korea', date:'20260503', hour:'00', domain:'DOMAIN1' }
+  baseDate:  null,   // Date object (UTC) for run time
+  avail:     {},     // { prodId: bool }   — does any image exist for this run?
+  stepsCache:{},     // { prodId: [0,1,2,...] }
+  prodId:    null,
+  fhr:       0,
+  playing:   false,
+  fps:       4,
+  loop:      true,
+  timer:     null,
+};
+
+// ── Utilities ─────────────────────────────────────────────────────
+const pad3  = n => String(n).padStart(3, '0');
+const allProds = () => CATALOG.flatMap(c => c.items);
+const getProd  = id => allProds().find(p => p.id === id);
+
+function imgSrc(prodId, fhr) {
+  const { region, date, hour, domain } = S.run;
+  return `${FIGS_BASE}/${region}/${date}/${hour}/${domain}/${prodId}_${pad3(fhr)}.png`;
+}
+
+// Probe whether an image URL resolves (works on file:// and http://)
+function probe(src) {
+  return new Promise(resolve => {
+    const img = new Image();
+    const t = setTimeout(() => resolve(false), 6000);
+    img.onload  = () => { clearTimeout(t); resolve(true); };
+    img.onerror = () => { clearTimeout(t); resolve(false); };
+    img.src = src;
+  });
+}
+
+// ── Init ──────────────────────────────────────────────────────────
+window.onload = () => {
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, '0');
+  const d = String(today.getDate()).padStart(2, '0');
+  document.getElementById('date-inp').value = `${y}-${m}-${d}`;
+
+  document.getElementById('loop-chk').addEventListener('change', function () {
+    S.loop = this.checked;
+  });
+  document.addEventListener('keydown', onKey);
+};
+
+// ── Region click ──────────────────────────────────────────────────
+function clickRegion(btn) {
+  document.querySelectorAll('[data-region]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function activeRegion() {
+  return document.querySelector('[data-region].active')?.dataset.region || 'korea';
+}
+function currentRegionInfo() {
+  const region = S.run?.region || activeRegion();
+  return REGIONS[region] || REGIONS.korea;
+}
+
+// ── Domain click ──────────────────────────────────────────────────
+function clickDomain(btn) {
+  document.querySelectorAll('[data-domain]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function activeDomain() {
+  return document.querySelector('[data-domain].active')?.dataset.domain || 'DOMAIN1';
+}
+
+// ── LOAD ──────────────────────────────────────────────────────────
+async function loadRun() {
+  const dateVal = document.getElementById('date-inp').value;  // YYYY-MM-DD
+  const hourVal = document.getElementById('hour-sel').value;  // 00/06/12/18
+  const region   = activeRegion();
+  const domain   = activeDomain();
+
+  if (!dateVal) { alert('Please select a date.'); return; }
+
+  const date = dateVal.replace(/-/g, '');
+  stopPlay();
+  S.run        = { region, date, hour: hourVal, domain };
+  S.stepsCache = {};
+  S.avail      = {};
+  S.prodId     = null;
+
+  S.baseDate = new Date(Date.UTC(
+    +date.slice(0, 4), +date.slice(4, 6) - 1, +date.slice(6, 8), +hourVal
+  ));
+
+  const lb = document.getElementById('load-btn');
+  lb.disabled = true;
+  lb.textContent = '⏳ Loading…';
+
+  showGlobalOverlay('load', 'Scanning available products…');
+
+  // Probe FHR 000 and 001 for all products in parallel
+  const basePath = `${FIGS_BASE}/${region}/${date}/${hourVal}/${domain}`;
+  const probes = await Promise.all(
+    allProds().map(async p => {
+      const a = await probe(`${basePath}/${p.id}_000.png`);
+      const b = a || await probe(`${basePath}/${p.id}_001.png`);
+      return { id: p.id, ok: b };
+    })
+  );
+
+  probes.forEach(r => { S.avail[r.id] = r.ok; });
+
+  const nAvail = probes.filter(r => r.ok).length;
+
+  lb.disabled = false;
+  lb.textContent = '⏵ Load';
+
+  const d = date, h = hourVal;
+  document.getElementById('run-badge').innerHTML =
+    `Region: <span class="hi">${currentRegionInfo().label}</span> · Run: <span class="hi">${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)} ${h}Z</span> · ${domain}`;
+
+  if (nAvail === 0) {
+    showGlobalOverlay('error', `No images found for<br>${currentRegionInfo().label} · ${date} ${hourVal}Z ${domain}`);
+    buildSidebar();   // show sidebar with everything dimmed
+    return;
+  }
+
+  buildSidebar();
+  hideGlobalOverlay();
+
+  // Auto-select first available product
+  for (const p of allProds()) {
+    if (S.avail[p.id]) { await selectProduct(p.id); break; }
+  }
+}
+
+// ── Sidebar ───────────────────────────────────────────────────────
+function buildSidebar() {
+  const sb = document.getElementById('sidebar');
+  sb.innerHTML = '';
+
+  CATALOG.forEach(cat => {
+    const hdr = document.createElement('div');
+    hdr.className = 'cat-hdr';
+    hdr.textContent = cat.cat;
+    hdr.onclick = () => {
+      hdr.classList.toggle('collapsed');
+      items.classList.toggle('collapsed');
+    };
+    sb.appendChild(hdr);
+
+    const items = document.createElement('div');
+    items.className = 'cat-items';
+
+    cat.items.forEach(prod => {
+      const avail  = S.avail[prod.id];
+      const cached = S.stepsCache[prod.id];
+      const badge  = cached ? `${cached.length}f` : (avail ? '…' : '—');
+
+      const btn = document.createElement('button');
+      btn.className = 'prod-btn' + (avail ? '' : ' unavail');
+      btn.dataset.prodId = prod.id;
+      btn.innerHTML = `<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${prod.label}</span>`
+                    + `<span class="badge">${badge}</span>`;
+      if (avail) btn.onclick = () => selectProduct(prod.id);
+      items.appendChild(btn);
+    });
+
+    sb.appendChild(items);
+  });
+}
+
+function updateSidebarBadge(prodId) {
+  const steps  = S.stepsCache[prodId] || [];
+  const btn    = document.querySelector(`.prod-btn[data-prod-id="${prodId}"]`);
+  if (!btn) return;
+  const badge  = btn.querySelector('.badge');
+  if (badge) badge.textContent = steps.length ? `${steps.length}f` : '—';
+}
+
+// ── Product select ────────────────────────────────────────────────
+async function selectProduct(prodId) {
+  if (!S.run) return;
+  stopPlay();
+
+  document.querySelectorAll('.prod-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.prodId === prodId);
+  });
+
+  const prod = getProd(prodId);
+  document.getElementById('prod-title').textContent = prod?.label || prodId;
+  S.prodId = prodId;
+
+  // Use cached steps if available
+  let steps = S.stepsCache[prodId];
+  if (!steps) {
+    showImgOverlay('load', 'Detecting time steps…');
+    steps = await detectSteps(prodId);
+    S.stepsCache[prodId] = steps;
+    updateSidebarBadge(prodId);
+  }
+
+  if (!steps.length) {
+    showImgOverlay('error', 'No images found.');
+    clearControls();
+    return;
+  }
+
+  // Clamp current FHR to valid step
+  if (!steps.includes(S.fhr)) S.fhr = nearestStep(steps, S.fhr);
+
+  hideImgOverlay();
+  updateSlider(steps);
+  updateTicks(steps);
+  updateTimeInfo();
+  showImage();
+  preload(prodId, steps);
+}
+
+// ── Time step detection ───────────────────────────────────────────
+// Probes real files to figure out which FHRs exist.
+async function detectSteps(prodId) {
+  const { region, date, hour, domain } = S.run;
+  const base = `${FIGS_BASE}/${region}/${date}/${hour}/${domain}`;
+  const p = fhr => probe(`${base}/${prodId}_${pad3(fhr)}.png`);
+
+  // 1. Detect interval: try 1,2,3 in parallel then 6,12
+  const [h1, h2, h3] = await Promise.all([p(1), p(2), p(3)]);
+  let interval;
+  if      (h1) interval = 1;
+  else if (h2) interval = 2;
+  else if (h3) interval = 3;
+  else {
+    const [h6, h12] = await Promise.all([p(6), p(12)]);
+    if      (h6)  interval = 6;
+    else if (h12) interval = 12;
+    else          interval = 24;
+  }
+
+  // 2. Find max FHR: probe candidate maxima in parallel
+  const maxCands = [24, 48, 72, 96, 120, 168, 240];
+  const maxHits  = await Promise.all(maxCands.map(v => p(v)));
+  let maxFhr = 0;
+  for (let i = maxCands.length - 1; i >= 0; i--) {
+    if (maxHits[i]) { maxFhr = maxCands[i]; break; }
+  }
+  // Fallback: find a non-zero max below 24
+  if (maxFhr === 0) {
+    for (const v of [12, 6, 3, 1]) {
+      if (await p(v)) { maxFhr = v; break; }
+    }
+  }
+
+  // 3. Include FHR 000 if it exists
+  const has0 = await p(0);
+
+  // 4. Build step array: verify each step actually has a file
+  //    (avoids gaps when WRF skipped some steps)
+  const candidates = [];
+  if (has0) candidates.push(0);
+  for (let fhr = interval; fhr <= maxFhr; fhr += interval) candidates.push(fhr);
+
+  // For short sequences (≤48 steps), verify every step.
+  // For long ones, trust the interval pattern to avoid hundreds of probes.
+  let steps;
+  if (candidates.length <= 48) {
+    const ok = await Promise.all(candidates.map(v => has0 && v === 0 ? true : p(v)));
+    steps = candidates.filter((_, i) => ok[i]);
+  } else {
+    steps = candidates; // trust the pattern
+  }
+
+  return steps;
+}
+
+// ── Navigation ────────────────────────────────────────────────────
+function currentSteps() { return S.prodId ? (S.stepsCache[S.prodId] || []) : []; }
+
+function nearestStep(steps, fhr) {
+  if (!steps.length) return 0;
+  return steps.reduce((a, b) => Math.abs(b - fhr) < Math.abs(a - fhr) ? b : a);
+}
+
+function stepBack() {
+  stopPlay();
+  const steps = currentSteps();
+  const idx = steps.indexOf(S.fhr);
+  if (idx > 0) { S.fhr = steps[idx - 1]; syncUI(); showImage(); }
+}
+
+function stepFwd(fromAnim = false) {
+  const steps = currentSteps();
+  const idx = steps.indexOf(S.fhr);
+  if (idx < steps.length - 1) {
+    S.fhr = steps[idx + 1]; syncUI(); showImage(); return true;
+  } else if (S.loop && fromAnim) {
+    S.fhr = steps[0]; syncUI(); showImage(); return true;
+  }
+  return false;
+}
+
+function goFirst() {
+  stopPlay();
+  const steps = currentSteps();
+  if (steps.length) { S.fhr = steps[0]; syncUI(); showImage(); }
+}
+
+function goLast() {
+  stopPlay();
+  const steps = currentSteps();
+  if (steps.length) { S.fhr = steps[steps.length - 1]; syncUI(); showImage(); }
+}
+
+function jumpTo(fhr) {
+  const steps = currentSteps();
+  if (!steps.includes(fhr)) return;
+  stopPlay();
+  S.fhr = fhr; syncUI(); showImage();
+}
+
+// ── Slider ────────────────────────────────────────────────────────
+function onSliderInput(val) {
+  const steps = currentSteps();
+  if (!steps.length) return;
+  S.fhr = steps[parseInt(val)] ?? steps[0];
+  document.getElementById('fhr-cur').textContent = pad3(S.fhr);
+  updateTimeInfo();
+  updateActiveTick();
+}
+
+function onSliderChange(val) {
+  const steps = currentSteps();
+  if (!steps.length) return;
+  S.fhr = steps[parseInt(val)] ?? steps[0];
+  showImage();
+}
+
+function updateSlider(steps) {
+  const sl = document.getElementById('fhr-slider');
+  sl.min = 0;
+  sl.max = steps.length - 1;
+  sl.value = Math.max(0, steps.indexOf(S.fhr));
+  document.getElementById('fhr-cur').textContent = pad3(S.fhr);
+  document.getElementById('fhr-max').textContent = pad3(steps[steps.length - 1]);
+}
+
+function clearControls() {
+  const sl = document.getElementById('fhr-slider');
+  sl.min = sl.max = sl.value = 0;
+  document.getElementById('fhr-cur').textContent = '—';
+  document.getElementById('fhr-max').textContent = '—';
+  document.getElementById('ticks').innerHTML = '';
+}
+
+function syncUI() {
+  const steps = currentSteps();
+  const sl = document.getElementById('fhr-slider');
+  sl.value = Math.max(0, steps.indexOf(S.fhr));
+  document.getElementById('fhr-cur').textContent = pad3(S.fhr);
+  updateTimeInfo();
+  updateActiveTick();
+}
+
+// ── Tick marks ────────────────────────────────────────────────────
+function updateTicks(steps) {
+  const wrap = document.getElementById('ticks');
+  wrap.innerHTML = '';
+  if (!steps.length) return;
+
+  const maxFhr = steps[steps.length - 1];
+
+  // Decide which labels to show: every 6h, 12h, 24h, or 48h depending on range
+  let labelEvery;
+  if      (maxFhr <= 24)  labelEvery = 6;
+  else if (maxFhr <= 72)  labelEvery = 12;
+  else if (maxFhr <= 168) labelEvery = 24;
+  else                    labelEvery = 48;
+
+  const markFhrs = new Set();
+  for (let v = 0; v <= maxFhr; v += labelEvery) markFhrs.add(v);
+  markFhrs.add(maxFhr);  // always show last
+
+  markFhrs.forEach(v => {
+    if (v > maxFhr) return;
+    const tick = document.createElement('div');
+    tick.className = 'tick' + (v === S.fhr ? ' cur' : '')
+                   + (steps.includes(v) ? '' : ' unavail');
+    tick.textContent = pad3(v);
+    tick.dataset.fhr = v;
+    tick.style.left = maxFhr > 0 ? (v / maxFhr * 100) + '%' : '0%';
+    if (steps.includes(v)) tick.onclick = () => jumpTo(v);
+    wrap.appendChild(tick);
+  });
+}
+
+function updateActiveTick() {
+  document.querySelectorAll('#ticks .tick').forEach(t => {
+    t.classList.toggle('cur', parseInt(t.dataset.fhr) === S.fhr);
+  });
+}
+
+// ── Image display ─────────────────────────────────────────────────
+let loadSeq = 0;
+
+function showImage() {
+  if (!S.prodId || !S.run) return;
+  const seq = ++loadSeq;
+  const src = imgSrc(S.prodId, S.fhr);
+  const img = document.getElementById('mainimg');
+
+  img.classList.add('fading');
+
+  const tmp = new Image();
+  tmp.onload = () => {
+    if (seq !== loadSeq) return;
+    img.src = src;
+    img.classList.remove('fading');
+    hideImgOverlay();
+  };
+  tmp.onerror = () => {
+    if (seq !== loadSeq) return;
+    img.src = '';
+    img.classList.remove('fading');
+    showImgOverlay('error',
+      `Image not found<br><small style="font-size:10px;opacity:.6">${src}</small>`);
+  };
+  tmp.src = src;
+}
+
+// ── Preloading ────────────────────────────────────────────────────
+const preloadSet = new Set();
+
+function preload(prodId, steps) {
+  const fill  = document.getElementById('preload-fill');
+  const total = steps.length;
+  let done    = 0;
+  fill.style.width = '0%';
+
+  steps.forEach(fhr => {
+    const src = imgSrc(prodId, fhr);
+    if (preloadSet.has(src)) { done++; fill.style.width = (done / total * 100) + '%'; return; }
+    const img = new Image();
+    img.onload = img.onerror = () => {
+      preloadSet.add(src);
+      fill.style.width = (++done / total * 100) + '%';
+    };
+    img.src = src;
+  });
+}
+
+// ── Time info bar ─────────────────────────────────────────────────
+function updateTimeInfo() {
+  document.getElementById('ti-fhr').textContent = `+${pad3(S.fhr)}h`;
+  if (!S.baseDate) return;
+
+  const info = currentRegionInfo();
+  const validUTC = new Date(S.baseDate.getTime() + S.fhr * 3_600_000);
+  const validLCL = new Date(validUTC.getTime() + info.utcOffset * 3_600_000);
+
+  document.getElementById('ti-utc').textContent = fmtDate(validUTC) + ' UTC';
+  document.getElementById('ti-ict').textContent = fmtDate(validLCL) + ' ' + info.tzName;
+}
+
+function fmtDate(d) {
+  const y  = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dy = String(d.getUTCDate()).padStart(2, '0');
+  const h  = String(d.getUTCHours()).padStart(2, '0');
+  return `${y}-${mo}-${dy} ${h}:00`;
+}
+
+// ── Animation ─────────────────────────────────────────────────────
+function togglePlay() {
+  if (S.playing) stopPlay(); else startPlay();
+}
+
+function startPlay() {
+  if (!currentSteps().length) return;
+  S.playing = true;
+  const btn = document.getElementById('play-btn');
+  btn.textContent = '⏸';
+  btn.classList.add('on');
+  tick();
+}
+
+function stopPlay() {
+  S.playing = false;
+  if (S.timer) { clearTimeout(S.timer); S.timer = null; }
+  const btn = document.getElementById('play-btn');
+  btn.textContent = '▶';
+  btn.classList.remove('on');
+}
+
+function tick() {
+  if (!S.playing) return;
+  S.timer = setTimeout(() => {
+    const advanced = stepFwd(true);
+    if (advanced || S.loop) tick();
+    else stopPlay();
+  }, Math.round(1000 / S.fps));
+}
+
+function onSpeed(val) {
+  S.fps = parseInt(val);
+  document.getElementById('speed-val').textContent = S.fps + ' fps';
+}
+
+// ── Overlay helpers ───────────────────────────────────────────────
+function showGlobalOverlay(type, html) {
+  const ov  = document.getElementById('overlay');
+  const box = document.getElementById('ovl-box');
+  box.className = `ovl-box ${type}`;
+  box.innerHTML = (type === 'load' ? '<div class="spinner"></div>' : '')
+                + `<div class="ovl-title">${html}</div>`;
+  ov.classList.remove('hidden');
+}
+
+function hideGlobalOverlay() {
+  document.getElementById('overlay').classList.add('hidden');
+}
+
+// Separate overlay for "image not found" vs global state
+function showImgOverlay(type, html) {
+  showGlobalOverlay(type, html);
+}
+
+function hideImgOverlay() {
+  document.getElementById('overlay').classList.add('hidden');
+}
+
+// ── Keyboard ──────────────────────────────────────────────────────
+function onKey(e) {
+  if (e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
+  if (e.target.tagName === 'SELECT') return;
+  switch (e.key) {
+    case 'ArrowLeft':  e.preventDefault(); stepBack(); break;
+    case 'ArrowRight': e.preventDefault();
+      if (!S.playing) { const steps = currentSteps(); const i = steps.indexOf(S.fhr); if (i < steps.length-1) { S.fhr = steps[i+1]; syncUI(); showImage(); } }
+      break;
+    case ' ':     e.preventDefault(); togglePlay(); break;
+    case 'Home':  e.preventDefault(); goFirst(); break;
+    case 'End':   e.preventDefault(); goLast(); break;
+  }
+}
+</script>
+</body>
+</html>
