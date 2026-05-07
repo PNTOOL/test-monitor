@@ -911,7 +911,8 @@ async function selectProduct(prodId) {
   }
 
   // Clamp current FHR to valid step
-  if (!steps.includes(S.fhr)) S.fhr = nearestStep(steps, S.fhr);
+  // if (!steps.includes(S.fhr)) S.fhr = nearestStep(steps, S.fhr);
+  S.fhr = steps[0];
 
   hideImgOverlay();
   updateSlider(steps);
